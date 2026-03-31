@@ -1,4 +1,4 @@
-name: Build Vaultwarden for macOS
+name: Build Vaultwarden 
 
 on:
   push:
@@ -49,10 +49,13 @@ jobs:
           mkdir -p vaultwarden-package
           cp target/aarch64-apple-darwin/release/vaultwarden ./vaultwarden-package/
           
-          # 改进：增加环境变量隔离和错误检查
-          echo "Fetching Web Vault URL..."
-          # 使用 -fsSL 确保出错时直接退出，不下载空文件
-          WEB_JSON=$(curl -s https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest)
+          echo "Fetching Web Vault URL with Authentication..."
+          
+          # 使用 GITHUB_TOKEN 进行身份验证以避开频率限制
+          WEB_JSON=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest)
+          
+          # 提取下载链接
           WEB_RELEASE_URL=$(echo "$WEB_JSON" | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
           
           if [ -z "$WEB_RELEASE_URL" ]; then
@@ -66,7 +69,7 @@ jobs:
           tar -xzf web-vault.tar.gz -C ./vaultwarden-package/
           rm web-vault.tar.gz
 
-          # 使用 echo 避免 cat <<EOF 的缩进地狱
+          # 生成配置文件
           echo "DOMAIN=http://localhost:8080" > ./vaultwarden-package/.env
           echo "SIGNUPS_ALLOWED=true" >> ./vaultwarden-package/.env
           echo "WEB_VAULT_ENABLED=true" >> ./vaultwarden-package/.env
