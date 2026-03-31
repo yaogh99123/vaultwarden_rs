@@ -3,8 +3,8 @@ name: Build Vaultwarden for macOS
 on:
   push:
     tags:
-      - 'v*' # 当你推送 v1.30.0 这种标签时触发发布
-  workflow_dispatch: # 允许你在 GitHub Actions 页面手动点击运行
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -23,20 +23,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 安装编译所需的系统库
           brew install openssl mysql-client libpq pkg-config
+          # 正确写入环境变量的方法
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "MYSQLCLIENT_LIB_DIR=$(brew --prefix mysql-client)/lib" >> $GITHUB_ENV
+          echo "MYSQLCLIENT_VERSION=8.0" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBSQLITE3_SYS_BUNDLED=1" >> $GITHUB_ENV
           
-          # 设置环境变量以确保链接器能找到库文件
-          {
-            echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)"
-            echo "MYSQLCLIENT_LIB_DIR=$(brew --prefix mysql-client)/lib"
-            echo "MYSQLCLIENT_VERSION=8.0"
-            echo "LIBRARY_PATH=$(brew --prefix libpq)/lib"
-            echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig"
-            echo "LIBSQLITE3_SYS_BUNDLED=1" 
-          } >> $GITHUB_ENV
-          
-          # 将数据库配置工具加入系统路径
           echo "$(brew --prefix mysql-client)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix libpq)/bin" >> $GITHUB_PATH
 
@@ -45,39 +40,39 @@ jobs:
 
       - name: Build Vaultwarden Backend
         run: |
-          # 针对 M4 (ARM64) 架构进行 Release 编译
           cargo build --release \
             --target aarch64-apple-darwin \
             --features sqlite,mysql,postgresql
 
       - name: Prepare Full Package
         run: |
-          # 1. 创建临时打包文件夹
           mkdir -p vaultwarden-package
+          cp target/aarch64-apple-darwin/release/vaultwarden ./vaultwarden-package/
           
-          # 2. 移动二进制文件并改名
-          cp target/aarch64-apple-darwin/release/vaultwarden ./vaultwarden-package/vaultwarden
+          # 改进：增加环境变量隔离和错误检查
+          echo "Fetching Web Vault URL..."
+          # 使用 -fsSL 确保出错时直接退出，不下载空文件
+          WEB_JSON=$(curl -s https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest)
+          WEB_RELEASE_URL=$(echo "$WEB_JSON" | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
           
-          # 3. 自动抓取最新的官方 Web Vault 前端
-          # 这步会自动找到最新的下载链接，无需手动改版本号
-          WEB_RELEASE_URL=$(curl -s https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4)
-          echo "Fetching Web Vault from: $WEB_RELEASE_URL"
-          curl -L "$WEB_RELEASE_URL" -o web.tar.gz
-          tar -xzf web.tar.gz -C ./vaultwarden-package/
-          rm web.tar.gz
+          if [ -z "$WEB_RELEASE_URL" ]; then
+            echo "Error: Could not find Web Vault download URL. API response was:"
+            echo "$WEB_JSON"
+            exit 1
+          fi
 
-          # 4. 生成默认配置文件模板
-          # --- 注意下面这里的缩进，必须对齐 ---
-          cat <<EOF > ./vaultwarden-package/.env
-          DOMAIN=http://localhost:8080
-          SIGNUPS_ALLOWED=true
-          WEB_VAULT_ENABLED=true
-          WEB_VAULT_FOLDER=web-vault
-          DATABASE_URL=data/db.sqlite3
-          EOF
-          # --- 缩进结束 ---
+          echo "Downloading from: $WEB_RELEASE_URL"
+          curl -L "$WEB_RELEASE_URL" -o web-vault.tar.gz
+          tar -xzf web-vault.tar.gz -C ./vaultwarden-package/
+          rm web-vault.tar.gz
 
-          # 5. 压缩为 ZIP 格式
+          # 使用 echo 避免 cat <<EOF 的缩进地狱
+          echo "DOMAIN=http://localhost:8080" > ./vaultwarden-package/.env
+          echo "SIGNUPS_ALLOWED=true" >> ./vaultwarden-package/.env
+          echo "WEB_VAULT_ENABLED=true" >> ./vaultwarden-package/.env
+          echo "WEB_VAULT_FOLDER=web-vault" >> ./vaultwarden-package/.env
+          echo "DATABASE_URL=data/db.sqlite3" >> ./vaultwarden-package/.env
+
           zip -r vaultwarden-macos-m4-full.zip vaultwarden-package/
 
       - name: Create GitHub Release
@@ -86,21 +81,6 @@ jobs:
         with:
           files: vaultwarden-macos-m4-full.zip
           name: Release ${{ github.ref_name }}
-          body: |
-            ### Vaultwarden for macOS (Apple Silicon M1/M2/M3/M4)
-            
-            这是为您生成的 M4 芯片原生支持版本。
-            
-            **包含组件：**
-            - **后端**: Vaultwarden (Rust 编译, 支持 SQLite/MySQL/PG)
-            - **前端**: 最新版 Web Vault (已集成在压缩包内)
-            - **配置**: 包含基础 .env 模板
-            
-            **启动方法：**
-            1. 解压 `vaultwarden-macos-m4-full.zip`
-            2. 打开终端进入目录，执行: `./vaultwarden`
-            3. 在浏览器访问 `http://localhost:8080`
-          draft: false
-          prerelease: false
+          body: "Vaultwarden M4 (ARM64) Full Package with Web Vault."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
