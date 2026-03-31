@@ -67,14 +67,15 @@ jobs:
           rm web.tar.gz
 
           # 4. 生成默认配置文件模板
+          # --- 注意下面这里的缩进，必须对齐 ---
           cat <<EOF > ./vaultwarden-package/.env
-# Vaultwarden Configuration Template
-DOMAIN=http://localhost:8080
-SIGNUPS_ALLOWED=true
-WEB_VAULT_ENABLED=true
-WEB_VAULT_FOLDER=web-vault
-DATABASE_URL=data/db.sqlite3
-EOF
+          DOMAIN=http://localhost:8080
+          SIGNUPS_ALLOWED=true
+          WEB_VAULT_ENABLED=true
+          WEB_VAULT_FOLDER=web-vault
+          DATABASE_URL=data/db.sqlite3
+          EOF
+          # --- 缩进结束 ---
 
           # 5. 压缩为 ZIP 格式
           zip -r vaultwarden-macos-m4-full.zip vaultwarden-package/
